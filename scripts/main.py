@@ -139,7 +139,8 @@ if __name__ == '__main__':
         args.n_grasps, 
         args.n_execute, 
         args.n_facets, 
-        args.metric
+        args.metric,
+        mesh
     )
     # Each grasp is represented by T_grasp_world, a RigidTransform defining the 
     # position of the end effector

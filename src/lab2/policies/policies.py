@@ -30,7 +30,7 @@ OBJECT_MASS = {'gearbox': .25, 'nozzle': .25, 'pawn': .25}
 
 
 class GraspingPolicy():
-    def __init__(self, n_vert, n_grasps, n_execute, n_facets, metric_name):
+    def __init__(self, n_vert, n_grasps, n_execute, n_facets, metric_name, mesh, T_obj_world, T_world_ar):
         """
         Parameters
         ----------
@@ -49,9 +49,15 @@ class GraspingPolicy():
         """
         self.n_vert = n_vert
         self.n_grasps = n_grasps
+        self.n_execute = n_execute
         self.n_facets = n_facets
         # This is a function, one of the functions in src/lab2/metrics/metrics.py
         self.metric = eval(metric_name)
+        self.mesh = mesh
+        self.T_obj_world = T_obj_world
+        self.T_world_ar = T_world_ar
+
+        self.ar_z = T_world_ar.position[2]
 
     def vertices_to_baxter_hand_pose(grasp_vertices, approach_direction):
         """
@@ -74,7 +80,7 @@ class GraspingPolicy():
         # YOUR CODE HERE
         raise NotImplementedError
 
-    def sample_grasps(self, vertices, normals):
+    def sample_grasps(self, vertices, normals, cos_thresh=-0.8, table_thresh=0.03):
         """
         Samples a bunch of candidate grasps.  You should randomly choose pairs of vertices and throw out
         pairs which are too big for the gripper, or too close too the table.  You should throw out vertices 
@@ -101,11 +107,57 @@ class GraspingPolicy():
         """
         grasp_vertices = None
         grasp_normals = None
-        raise NotImplementedError
+        # points, face_indices = trimesh.sample.sample_surface_even(self.mesh, 1000)
+        # normals = mesh.face_normals[face_indices]
+        grasp_vertices = np.zeros((self.n_grasps, 2, 3))
+        grasp_normals = np.zeros((self.n_grasps, 2, 3))
+
+
+        i = 0
+        while i < self.n_grasps:
+            first = np.random.randint(0,len(vertices))
+            second = np.random.randint(0, len(vertices))
+            first_vert, second_vert = vertices[first], vertices[second]
+            first_norm, second_norm = normals[first], normals[second]
+
+            first_vert_homo = np.array(list(first_vert) + [1])
+            second_vert_homo = np.array(list(second_vert) + [1])
+
+
+            first_vert_world = self.T_obj_world.inverse().matrix.dot(first_vert_homo).reshape(-1)
+            second_vert_world = self.T_obj_world.inverse().matrix.dot(second_vert_homo).reshape(-1)
+
+
+            # antipodality
+            if np.inner(first_norm, second_norm) > cos_thresh:
+                continue
+
+            # within gripper distance
+            if np.linalg.norm(first_vert - second_vert) > MAX_HAND_DISTANCE or np.linalg.norm(first_vert - second_vert) < MIN_HAND_DISTANCE:
+                continue
+
+            # closeness to table
+            min_vertex_z = min(first_vert_world[2], second_vert_world[2])
+            if abs(min_vertex_z - self.ar_z) < table_thresh:
+                continue
+
+            grasp_vert = np.array([[first_vert], 
+                                   [second_vert]
+                                  ]).reshape((2, 3))
+            grasp_norm = np.array([[first_norm], 
+                                   [second_norm]
+                                  ]).reshape((2, 3))
+            grasp_vertices[i] = grasp_vert
+            grasp_normals[i] = grasp_norm
+            i += 1
+
+        return grasp_vertices, grasp_normals
+
+
 
     def score_grasps(self, grasp_vertices, grasp_normals, object_mass):
         """
-        takes mesh and returns pairs of contacts and the quality of grasp between the contacts, sorted by quality
+        takes mesh and returns pairs of contacts and the quality of grasp between the contacts, NOT sorted by quality
         
         Parameters
         ----------
@@ -121,7 +173,7 @@ class GraspingPolicy():
         :obj:`list` of int
             grasp quality for each 
         """
-        raise NotImplementedError
+        return [self.metric(grasp_vertices[i], grasp_normals[i], self.n_facets, CONTACT_MU, CONTACT_GAMMA, object_mass) for i in range(len(grasp_vertices))]
 
     def vis(self, mesh, grasp_vertices, grasp_qualities):
         """
@@ -179,4 +231,20 @@ class GraspingPolicy():
         """
         # Some objects have vertices in odd places, so you should sample evenly across 
         # the mesh to get nicer candidate grasp points using trimesh.sample.sample_surface_even()
-        raise NotImplementedError
+        
+        points, face_indices = trimesh.sample.sample_surface_even(mesh, self.n_vert)
+        normals = mesh.face_normals[face_indices]
+        grasp_vertices, grasp_normals = self.sample_grasps(points, normals)
+        scores = self.score_grasps(grasp_vertices, grasp_normals, mesh.mass)
+
+
+        top_scores_idx = sorted(zip(scores, range(len(scores))), key=lambda x: x[0], reverse=True)
+        top_idx = [i for s, i in top_k_scores_idx][:self.n_execute]
+        top_grasp_vertices = [grasp_vertices[i] for i in top_idx]
+        top_grasp_normals = [grasp_normals[i] for i in top_idx]
+
+        for grasp_verts, grasp_norm in zip(top_grasp_vertices, top_grasp_normals):
+            # approach 1: nullspace
+            # approach 2: negative reciprocal for [x, y], choose z rotation to match the plane of the normals, depending on
+            # from which side the arm is coming in
+            # vertices_to_baxter_hand_pose(grasp_verts, approach_direction)
