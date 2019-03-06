@@ -16,7 +16,7 @@ from lab2.metrics import (
     compute_gravity_resistance, 
     compute_custom_metric
 )
-from lab2.utils import length, normalize
+from lab2.utils import length, normalize, rotation2d
 
 # YOUR CODE HERE
 # probably don't need to change these (BUT confirm that they're correct)
@@ -59,7 +59,27 @@ class GraspingPolicy():
 
         self.ar_z = T_world_ar.position[2]
 
-    def vertices_to_baxter_hand_pose(grasp_vertices, approach_direction):
+    # def vertices_to_baxter_hand_pose(grasp_vertices, approach_direction):
+    #     """
+    #     takes the contacts positions in the object frame and returns the hand pose T_obj_gripper
+    #     BE CAREFUL ABOUT THE FROM FRAME AND TO FRAME.  the RigidTransform class' frames are 
+    #     weird.
+        
+    #     Parameters
+    #     ----------
+    #     grasp_vertices : 2x3 :obj:`numpy.ndarray`
+    #         position of the fingers in object frame
+    #     approach_direction : 3x' :obj:`numpy.ndarray`
+    #         there are multiple grasps that go through contact1 and contact2.  This describes which 
+    #         orientation the hand should be in
+
+    #     Returns
+    #     -------
+    #     :obj:`autolab_core:RigidTransform` Hand pose in the object frame
+    #     """
+    #     # YOUR CODE HERE
+    
+    def vertices_to_baxter_hand_pose(grasp_vertices, grasp_normals):
         """
         takes the contacts positions in the object frame and returns the hand pose T_obj_gripper
         BE CAREFUL ABOUT THE FROM FRAME AND TO FRAME.  the RigidTransform class' frames are 
@@ -69,16 +89,34 @@ class GraspingPolicy():
         ----------
         grasp_vertices : 2x3 :obj:`numpy.ndarray`
             position of the fingers in object frame
-        approach_direction : 3x' :obj:`numpy.ndarray`
-            there are multiple grasps that go through contact1 and contact2.  This describes which 
-            orientation the hand should be in
+        grasp_normals : 2x3' :obj:`numpy.ndarray`
+            normals at the grasp vertices
 
         Returns
         -------
         :obj:`autolab_core:RigidTransform` Hand pose in the object frame
         """
         # YOUR CODE HERE
-        raise NotImplementedError
+        # y-axis (bar across the grippers): direction of the grasp normals
+        y_axis = np.average(grasp_normals[0] - grasp_normals[1])
+        y_axis /= np.linalg.norm(y_axis)
+
+        # z-axis (direction the end-effector is pointing, pointing out of the grippers): take the first two terms of the y-axis 
+        # (in the world frame, or in object frame if the object doesn't have rotation) 
+        # (think of it in 2D),
+        # rotate it by pi/2, and then set the third term to 0 because we want
+        # to have a "flat" z-axis in the world frame
+        y_axis_2d = y_axis[:2]
+        z_axis_2d = rotation2d(np.pi / 2).dot(y_axis_2d)
+        z_axis = np.hstack(z_axis_2d, [0])
+        z_axis /= np.linalg.norm(z_axis)
+
+        # x-axis: take the cross product of the y- and z-axes
+        x_axis = np.cross(y_axis, z_axis)
+
+        return RigidTransform.rotation_from_axes(x_axis, y_axis, z_axis)
+
+
 
     def sample_grasps(self, vertices, normals, cos_thresh=-0.8, table_thresh=0.03):
         """
@@ -243,8 +281,8 @@ class GraspingPolicy():
         top_grasp_vertices = [grasp_vertices[i] for i in top_idx]
         top_grasp_normals = [grasp_normals[i] for i in top_idx]
 
+        poses = []
         for grasp_verts, grasp_norm in zip(top_grasp_vertices, top_grasp_normals):
-            # approach 1: nullspace
-            # approach 2: negative reciprocal for [x, y], choose z rotation to match the plane of the normals, depending on
-            # from which side the arm is coming in
-            # vertices_to_baxter_hand_pose(grasp_verts, approach_direction)
+            poses.append(vertices_to_baxter_hand_pose(grasp_verts, grasp_norm))
+
+        return poses
