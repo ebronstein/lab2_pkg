@@ -1,4 +1,4 @@
-#!/usr/bin/env python -W ignore::DeprecationWarning
+#!/home/cc/ee106b/sp19/class/ee106b-aap/ee106b_sp19/ros_workspaces/lab2_ws/env/bin/python -W ignore::DeprecationWarning
 """
 Grasping Policy for EE106B grasp planning lab
 Author: Chris Correa
@@ -57,7 +57,7 @@ class GraspingPolicy():
         self.T_obj_world = T_obj_world
         self.T_world_ar = T_world_ar
 
-        self.ar_z = T_world_ar.position[2]
+        self.ar_z = 0.1 #T_world_ar.position[2]
 
     # def vertices_to_baxter_hand_pose(grasp_vertices, approach_direction):
     #     """
@@ -118,7 +118,7 @@ class GraspingPolicy():
 
 
 
-    def sample_grasps(self, vertices, normals, cos_thresh=-0.8, table_thresh=0.03):
+    def sample_grasps(self, vertices, normals, cos_thresh=-0.9, table_thresh=0.03):
         """
         Samples a bunch of candidate grasps.  You should randomly choose pairs of vertices and throw out
         pairs which are too big for the gripper, or too close too the table.  You should throw out vertices 
@@ -128,25 +128,21 @@ class GraspingPolicy():
         Parameters
         ----------
         vertices : nx3 :obj:`numpy.ndarray`
-            mesh vertices
+            mesh vertices (frame: object)
         normals : nx3 :obj:`numpy.ndarray`
-            mesh normals
+            mesh normals (frame: object)
         T_ar_object : :obj:`autolab_core.RigidTransform`
             transform from the AR tag on the paper to the object
 
         Returns
         -------
-        n_graspsx2x3 :obj:`numpy.ndarray`
+        n_graspsx2x3 :obj:`numpy.ndarray` (frame: object)
             grasps vertices.  Each grasp containts two contact points.  Each contact point
             is a 3 dimensional vector and there are n_grasps of them, hence the shape n_graspsx2x3
-        n_graspsx2x3 :obj:`numpy.ndarray`
+        n_graspsx2x3 :obj:`numpy.ndarray` (frame: object)
             grasps normals.  Each grasp containts two contact points.  Each vertex normal
             is a 3 dimensional vector, and there are n_grasps of them, hence the shape n_graspsx2x3
         """
-        grasp_vertices = None
-        grasp_normals = None
-        # points, face_indices = trimesh.sample.sample_surface_even(self.mesh, 1000)
-        # normals = mesh.face_normals[face_indices]
         grasp_vertices = np.zeros((self.n_grasps, 2, 3))
         grasp_normals = np.zeros((self.n_grasps, 2, 3))
 
@@ -170,6 +166,14 @@ class GraspingPolicy():
             if np.inner(first_norm, second_norm) > cos_thresh:
                 continue
 
+            # correct position (normals should face away from each other)
+            dist = np.linalg.norm(first_vert - second_vert)
+            dist_along_norm = np.linalg.norm(first_vert + 1e-6 * first_norm - second_vert)
+            dist_against_norm = np.linalg.norm(first_vert - 1e-6 * first_norm - second_vert)
+            if dist_along_norm < dist or dist_along_norm < dist_against_norm:
+                print 'Rejecting grasp due to normals facing toward each other'
+                continue
+
             # within gripper distance
             if np.linalg.norm(first_vert - second_vert) > MAX_HAND_DISTANCE or np.linalg.norm(first_vert - second_vert) < MIN_HAND_DISTANCE:
                 continue
@@ -177,6 +181,7 @@ class GraspingPolicy():
             # closeness to table
             min_vertex_z = min(first_vert_world[2], second_vert_world[2])
             if abs(min_vertex_z - self.ar_z) < table_thresh:
+                print 'Rejecting grasp due to closeness to table'
                 continue
 
             grasp_vert = np.array([[first_vert], 
@@ -187,9 +192,12 @@ class GraspingPolicy():
                                   ]).reshape((2, 3))
             grasp_vertices[i] = grasp_vert
             grasp_normals[i] = grasp_norm
+
+            if i % 10 == 0:
+                print i
             i += 1
 
-        return grasp_vertices, grasp_normals
+        return grasp_vertices, grasp_normals # (frame: object)
 
 
 
@@ -199,10 +207,10 @@ class GraspingPolicy():
         
         Parameters
         ----------
-        grasp_vertices : n_graspsx2x3 :obj:`numpy.ndarray`
+        grasp_vertices : n_graspsx2x3 :obj:`numpy.ndarray` (frame: object)
             grasps.  Each grasp containts two contact points.  Each contact point
             is a 3 dimensional vector, and there are n_grasps of them, hence the shape n_graspsx2x3
-        grasp_normals : mx2x3 :obj:`numpy.ndarray`
+        grasp_normals : mx2x3 :obj:`numpy.ndarray` (frame: object)
             grasps normals.  Each grasp containts two contact points.  Each vertex normal
             is a 3 dimensional vector, and there are n_grasps of them, hence the shape n_graspsx2x3
 
@@ -270,17 +278,23 @@ class GraspingPolicy():
         # Some objects have vertices in odd places, so you should sample evenly across 
         # the mesh to get nicer candidate grasp points using trimesh.sample.sample_surface_even()
         
-        points, face_indices = trimesh.sample.sample_surface_even(mesh, self.n_vert)
-        normals = mesh.face_normals[face_indices]
-        grasp_vertices, grasp_normals = self.sample_grasps(points, normals)
+        points, face_indices = trimesh.sample.sample_surface_even(mesh, self.n_vert) # (frame: object)
+        normals = mesh.face_normals[face_indices] # (frame: object)
+        grasp_vertices, grasp_normals = self.sample_grasps(points, normals) # (frame: object)
         scores = self.score_grasps(grasp_vertices, grasp_normals, mesh.mass)
 
 
-        top_scores_idx = sorted(zip(scores, range(len(scores))), key=lambda x: x[0], reverse=True)
+        top_k_scores_idx = sorted(zip(scores, range(len(scores))), key=lambda x: x[0], reverse=True)
+        top_grasp_qualities = [s for s, i in top_k_scores_idx][:self.n_execute] 
         top_idx = [i for s, i in top_k_scores_idx][:self.n_execute]
-        top_grasp_vertices = [grasp_vertices[i] for i in top_idx]
-        top_grasp_normals = [grasp_normals[i] for i in top_idx]
+        top_grasp_vertices = np.array([grasp_vertices[i] for i in top_idx])
+        top_grasp_normals = np.array([grasp_normals[i] for i in top_idx])
 
+        # Visualize the grasps
+        if vis:
+            self.vis(mesh, top_grasp_vertices, top_grasp_qualities)
+
+        # Get the hand poses
         poses = []
         for grasp_verts, grasp_norm in zip(top_grasp_vertices, top_grasp_normals):
             poses.append(vertices_to_baxter_hand_pose(grasp_verts, grasp_norm))

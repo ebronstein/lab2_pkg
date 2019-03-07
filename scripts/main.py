@@ -1,4 +1,4 @@
-#!/usr/bin/env python -W ignore::DeprecationWarning
+#!/home/cc/ee106b/sp19/class/ee106b-aap/ee106b_sp19/ros_workspaces/lab2_ws/env/bin/python -W ignore::DeprecationWarning
 """
 Starter script for EE106B grasp planning lab
 Author: Chris Correa
@@ -119,6 +119,9 @@ def parse_args():
     parser.add_argument('--debug', action='store_true', help=
         'Whether or not to use a random seed'
     )
+    parser.add_argument('--ros', action='store_true', help=
+        'Whether or not to use ROS'
+    )
     return parser.parse_args()
 
 if __name__ == '__main__':
@@ -127,9 +130,14 @@ if __name__ == '__main__':
     if args.debug:
         np.random.seed(0)
 
+    ros_enabled = ros_enabled and args.ros
+
+    rospy.init_node('lab2_node')
+
     # Mesh loading and pre-processing
     mesh = trimesh.load_mesh('objects/{}.obj'.format(args.obj))
     T_obj_world = lookup_transform(args.obj)
+    T_world_ar = None # TODO
     mesh.apply_transform(T_obj_world.matrix)
     mesh.fix_normals()
 

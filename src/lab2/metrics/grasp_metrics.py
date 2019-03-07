@@ -1,11 +1,11 @@
-#!/usr/bin/env python -W ignore::DeprecationWarning
+#!/home/cc/ee106b/sp19/class/ee106b-aap/ee106b_sp19/ros_workspaces/lab2_ws/env/bin/python -W ignore::DeprecationWarning
 """
 Grasp Metrics for EE106B grasp planning lab
 Author: Chris Correa
 """
 # may need more imports
 import numpy as np
-from lab2.utils import vec, adj, look_at_general
+from lab2.utils import vec, adj, look_at_general, make_homo, wrench_basis
 import cvxpy as cvx
 import math
 
@@ -36,7 +36,14 @@ def compute_force_closure(vertices, normals, num_facets, mu, gamma, object_mass)
     float : quality of the grasp
     """
     # YOUR CODE HERE
-    raise NotImplementedError
+    c1, c2 = vertices
+    n1, n2 = normals
+    v = c2 - c1
+    theta = np.arctan(mu)
+    cos_theta = np.cos(theta)
+    in_fc1 = np.inner(-v, n1) / np.linalg.norm(v) <= cos_theta
+    in_fc2 = np.inner(v, n2) / np.linalg.norm(v) <= cos_theta
+    return float(in_fc1 and in_fc2)
 
 def get_grasp_map(vertices, normals, num_facets, mu, gamma):
     """ 
@@ -62,7 +69,16 @@ def get_grasp_map(vertices, normals, num_facets, mu, gamma):
     :obj:`numpy.ndarray` grasp map
     """
     # YOUR CODE HERE
-    raise NotImplementedError
+    v1, v2 = vertices
+    n1, n2 = normals
+    g1 = look_at_general(v1, n1)
+    g2 = look_at_general(v2, n2)
+    adj_g1 = adj(g1)
+    adj_g2 = adj(g2)
+    G1 = adj_g1 * wrench_basis
+    G2 = adj_g2 * wrench_basis
+    return np.hstack([G1, G2])
+
 
 def contact_forces_exist(vertices, normals, num_facets, mu, gamma, desired_wrench):
     """

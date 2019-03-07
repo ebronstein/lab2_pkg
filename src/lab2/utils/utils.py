@@ -1,4 +1,4 @@
-#!/usr/bin/env python -W ignore::DeprecationWarning
+#!/home/cc/ee106b/sp19/class/ee106b-aap/ee106b_sp19/ros_workspaces/lab2_ws/env/bin/python -W ignore::DeprecationWarning
 """
 Utils for EE106B grasp planning lab
 Author: Chris Correa
@@ -12,6 +12,14 @@ try:
     ros_enabled = True
 except:
     ros_enabled = False
+
+
+wrench_basis = np.zeros((6, 4))
+wrench_basis[0, 0] = 1
+wrench_basis[1, 1] = 1
+wrench_basis[2, 2] = 1
+wrench_basis[5, 3] = 1
+
 
 def length(vec):
     """
@@ -235,3 +243,9 @@ def create_pose_from_rigid_transform(g):
     wpose.orientation.z = quaternion[2]
     wpose.orientation.w = quaternion[3]
     return wpose
+
+def make_homo(R, p):
+    out = np.eye(4)
+    out[:3,3] = p
+    out[:3,:3] = R
+    return out
