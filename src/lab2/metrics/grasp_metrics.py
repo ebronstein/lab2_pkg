@@ -40,10 +40,18 @@ def compute_force_closure(vertices, normals, num_facets, mu, gamma, object_mass)
     n1, n2 = normals
     v = c2 - c1
     theta = np.arctan(mu)
-    cos_theta = np.cos(theta)
-    in_fc1 = np.inner(-v, n1) / np.linalg.norm(v) <= cos_theta
-    in_fc2 = np.inner(v, n2) / np.linalg.norm(v) <= cos_theta
-    return float(in_fc1 and in_fc2)
+    
+    # binary metric: 1 = in friction cone, 0 = not in friction cone
+    # cos_theta = np.cos(theta)
+    # in_fc1 = np.inner(-v, n1) / np.linalg.norm(v) <= cos_theta
+    # in_fc2 = np.inner(v, n2) / np.linalg.norm(v) <= cos_theta
+    # return float(in_fc1 and in_fc2)
+
+    cos_angle1 = np.inner(-v, n1) / np.linalg.norm(v)
+    cos_angle2 = np.inner(v, n2) / np.linalg.norm(v)
+    # best cos_angle: 1; worst cos_angle: -1
+    # sum of cos angles in [-2, 2]
+    return (2 + cos_angle1 + cos_angle2) / 4.
 
 def get_grasp_map(vertices, normals, num_facets, mu, gamma):
     """ 

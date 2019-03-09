@@ -15,6 +15,7 @@ import trimesh
 # 106B lab imports
 from lab2.policies import GraspingPolicy
 
+
 try:
     import rospy
     import tf
@@ -46,13 +47,24 @@ def lookup_transform(to_frame, from_frame='base'):
         return RigidTransform(to_frame=from_frame, from_frame=to_frame)
     listener = tf.TransformListener()
     attempts, max_attempts, rate = 0, 10, rospy.Rate(1.0)
+
+    # Sleep for a bit before looking up transformation
+    for _ in range(1):
+        rate.sleep()
+
     while attempts < max_attempts:
         try:
+            # import pdb; pdb.set_trace()
             t = listener.getLatestCommonTime(from_frame, to_frame)
             tag_pos, tag_rot = listener.lookupTransform(from_frame, to_frame, t)
+            break
         except:
             rate.sleep()
             attempts += 1
+            print 'Attempt {0} to look up transformation from {1} to {2} unsuccessful.'.format(
+                    attempts, from_frame, to_frame)
+    print 'Successfully found transformation from {0} to {1}.'.format(from_frame, to_frame)
+    # import pdb; pdb.set_trace()
     rot = RigidTransform.rotation_from_quaternion(tag_rot)
     return RigidTransform(rot, tag_pos, to_frame=from_frame, from_frame=to_frame)
 
@@ -135,11 +147,15 @@ if __name__ == '__main__':
     rospy.init_node('lab2_node')
 
     # Mesh loading and pre-processing
+    print 'Loading mesh'
     mesh = trimesh.load_mesh('objects/{}.obj'.format(args.obj))
+    print 'Looking up transformation to the object.'
     T_obj_world = lookup_transform(args.obj)
     T_world_ar = None # TODO
     mesh.apply_transform(T_obj_world.matrix)
     mesh.fix_normals()
+
+    print 'Initializing grasping policy.'
 
     # This policy takes a mesh and returns the best actions to execute on the robot
     grasping_policy = GraspingPolicy(
@@ -152,6 +168,9 @@ if __name__ == '__main__':
         T_obj_world,
         T_world_ar
     )
+
+    print 'Computing grasps.'
+
     # Each grasp is represented by T_grasp_world, a RigidTransform defining the 
     # position of the end effector
     T_grasp_worlds = grasping_policy.top_n_actions(mesh, args.obj)

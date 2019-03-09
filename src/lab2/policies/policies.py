@@ -79,7 +79,7 @@ class GraspingPolicy():
     #     """
     #     # YOUR CODE HERE
     
-    def vertices_to_baxter_hand_pose(grasp_vertices, grasp_normals):
+    def vertices_to_baxter_hand_pose(self, grasp_vertices, grasp_normals):
         """
         takes the contacts positions in the object frame and returns the hand pose T_obj_gripper
         BE CAREFUL ABOUT THE FROM FRAME AND TO FRAME.  the RigidTransform class' frames are 
@@ -98,7 +98,8 @@ class GraspingPolicy():
         """
         # YOUR CODE HERE
         # y-axis (bar across the grippers): direction of the grasp normals
-        y_axis = np.average(grasp_normals[0] - grasp_normals[1])
+
+        y_axis = (grasp_normals[0] - grasp_normals[1]) / 2
         y_axis /= np.linalg.norm(y_axis)
 
         # z-axis (direction the end-effector is pointing, pointing out of the grippers): take the first two terms of the y-axis 
@@ -108,17 +109,18 @@ class GraspingPolicy():
         # to have a "flat" z-axis in the world frame
         y_axis_2d = y_axis[:2]
         z_axis_2d = rotation2d(np.pi / 2).dot(y_axis_2d)
-        z_axis = np.hstack(z_axis_2d, [0])
+        z_axis = np.hstack([z_axis_2d, [0]])
         z_axis /= np.linalg.norm(z_axis)
 
         # x-axis: take the cross product of the y- and z-axes
         x_axis = np.cross(y_axis, z_axis)
 
-        return RigidTransform.rotation_from_axes(x_axis, y_axis, z_axis)
+        rotation_3d = RigidTransform.rotation_from_axes(x_axis, y_axis, z_axis)
+        translation = np.average(grasp_vertices, axis=0) # middle position between the grasp vertices
+        return RigidTransform(rotation=rotation_3d, translation=translation)
 
 
-
-    def sample_grasps(self, vertices, normals, cos_thresh=-0.9, table_thresh=0.03):
+    def sample_grasps(self, vertices, normals, normals_cos_thresh=-0.9, contact_alignment_cos_threshold=0.9, table_thresh=0.03):
         """
         Samples a bunch of candidate grasps.  You should randomly choose pairs of vertices and throw out
         pairs which are too big for the gripper, or too close too the table.  You should throw out vertices 
@@ -163,7 +165,18 @@ class GraspingPolicy():
 
 
             # antipodality
-            if np.inner(first_norm, second_norm) > cos_thresh:
+            # normals should be aligned
+            if np.inner(first_norm, second_norm) > normals_cos_thresh:
+                # print 'Rejecting grasp due to normals not being aligned.'
+                continue
+            # points should be aligned with gripper
+            v12 = second_vert - first_vert
+            if np.inner(v12, second_norm) / np.linalg.norm(v12) < contact_alignment_cos_threshold:
+                # print 'Rejecting grasp due to contacts not being aligned for the gripper.'
+                continue
+            v21 = first_vert - second_vert
+            if np.inner(v21, first_norm) / np.linalg.norm(v21) < contact_alignment_cos_threshold:
+                # print 'Rejecting grasp due to contacts not being aligned for the gripper.'
                 continue
 
             # correct position (normals should face away from each other)
@@ -193,8 +206,8 @@ class GraspingPolicy():
             grasp_vertices[i] = grasp_vert
             grasp_normals[i] = grasp_norm
 
-            if i % 10 == 0:
-                print i
+            # if i % 10 == 0:
+            print i
             i += 1
 
         return grasp_vertices, grasp_normals # (frame: object)
@@ -221,7 +234,7 @@ class GraspingPolicy():
         """
         return [self.metric(grasp_vertices[i], grasp_normals[i], self.n_facets, CONTACT_MU, CONTACT_GAMMA, object_mass) for i in range(len(grasp_vertices))]
 
-    def vis(self, mesh, grasp_vertices, grasp_qualities):
+    def vis(self, mesh, grasp_vertices, grasp_normals, grasp_qualities, hand_poses):
         """
         Pass in any grasp and its associated grasp quality.  this function will plot
         each grasp on the object and plot the grasps as a bar between the points, with
@@ -236,18 +249,50 @@ class GraspingPolicy():
             is a 3 dimensional vector, hence the shape mx2x3
         grasp_qualities : mx' :obj:`numpy.ndarray`
             vector of grasp qualities for each grasp
+        hand_poses: list of RigidTransform objects
         """
         vis3d.mesh(mesh)
 
         dirs = normalize(grasp_vertices[:,0] - grasp_vertices[:,1], axis=1)
         midpoints = (grasp_vertices[:,0] + grasp_vertices[:,1]) / 2
-        grasp_endpoints = np.zeros(grasp_vertices.shape)
-        grasp_vertices[:,0] = midpoints + dirs*MAX_HAND_DISTANCE/2
-        grasp_vertices[:,1] = midpoints - dirs*MAX_HAND_DISTANCE/2
+        grasp_contacts = np.zeros(grasp_vertices.shape)
+        grasp_contacts[:,0] = midpoints + dirs*MAX_HAND_DISTANCE/2
+        grasp_contacts[:,1] = midpoints - dirs*MAX_HAND_DISTANCE/2
 
-        for grasp, quality in zip(grasp_vertices, grasp_qualities):
+        for grasp, quality, normal, contacts, hand_pose in zip(grasp_vertices, grasp_qualities, grasp_normals, grasp_contacts, hand_poses):
             color = [min(1, 2*(1-quality)), min(1, 2*quality), 0, 1]
-            vis3d.plot3d(grasp, color=color, tube_radius=.001)
+
+            vis3d.points(grasp, scale=0.001, color=(1,0,0))
+            n1_endpoints = np.zeros((2,3))
+            n1_endpoints[0] = grasp[0]
+            n1_endpoints[1] = grasp[0] + 0.01 * normal[0]
+
+            n2_endpoints = np.zeros((2,3))
+            n2_endpoints[0] = grasp[1]
+            n2_endpoints[1] = grasp[1] + 0.01 * normal[1]
+
+            vis3d.plot3d(n1_endpoints, color=color, tube_radius=0.001)
+            vis3d.plot3d(n2_endpoints, color=color, tube_radius=0.001)
+
+            # hand pose
+            vis3d.points(hand_pose.position, scale=0.001, color=(0.5, 0.5, 0.5))
+
+            x_axis_endpoints = np.zeros((2, 3))
+            x_axis_endpoints[0] = hand_pose.position
+            x_axis_endpoints[1] = hand_pose.position + 0.01 * hand_pose.x_axis
+            vis3d.plot3d(x_axis_endpoints, color=(1,0,0), tube_radius=0.0001)
+            
+            y_axis_endpoints = np.zeros((2, 3))
+            y_axis_endpoints[0] = hand_pose.position
+            y_axis_endpoints[1] = hand_pose.position + 0.01 * hand_pose.y_axis
+            vis3d.plot3d(y_axis_endpoints, color=(0,1,0), tube_radius=0.0001)
+            
+            z_axis_endpoints = np.zeros((2, 3))
+            z_axis_endpoints[0] = hand_pose.position
+            z_axis_endpoints[1] = hand_pose.position + 0.01 * hand_pose.z_axis
+            vis3d.plot3d(z_axis_endpoints, color=(0,0,1), tube_radius=0.0001)
+
+            vis3d.plot3d(contacts, color=(0, 0, 1), tube_radius=.0005)
         vis3d.show()
 
     def top_n_actions(self, mesh, obj_name, vis=True):
@@ -290,13 +335,13 @@ class GraspingPolicy():
         top_grasp_vertices = np.array([grasp_vertices[i] for i in top_idx])
         top_grasp_normals = np.array([grasp_normals[i] for i in top_idx])
 
-        # Visualize the grasps
-        if vis:
-            self.vis(mesh, top_grasp_vertices, top_grasp_qualities)
-
         # Get the hand poses
         poses = []
         for grasp_verts, grasp_norm in zip(top_grasp_vertices, top_grasp_normals):
-            poses.append(vertices_to_baxter_hand_pose(grasp_verts, grasp_norm))
+            poses.append(self.vertices_to_baxter_hand_pose(grasp_verts, grasp_norm))
 
+        # Visualize the grasps
+        if vis:
+            self.vis(mesh, top_grasp_vertices, top_grasp_normals, top_grasp_qualities, poses)
+        
         return poses
