@@ -30,7 +30,7 @@ OBJECT_MASS = {'gearbox': .25, 'nozzle': .25, 'pawn': .25}
 
 
 class GraspingPolicy():
-    def __init__(self, n_vert, n_grasps, n_execute, n_facets, metric_name, mesh, T_obj_world, T_world_ar):
+    def __init__(self, n_vert, n_grasps, n_execute, n_facets, metric_name, mesh, T_obj_world, T_world_ar, object_name):
         """
         Parameters
         ----------
@@ -56,8 +56,9 @@ class GraspingPolicy():
         self.mesh = mesh
         self.T_obj_world = T_obj_world
         self.T_world_ar = T_world_ar
+        self.object_name = object_name
 
-        self.ar_z = 0.1 #T_world_ar.position[2]
+        self.ar_z = T_world_ar.position[2] # 0.1
 
     # def vertices_to_baxter_hand_pose(grasp_vertices, approach_direction):
     #     """
@@ -117,7 +118,7 @@ class GraspingPolicy():
 
         rotation_3d = RigidTransform.rotation_from_axes(x_axis, y_axis, z_axis)
         translation = np.average(grasp_vertices, axis=0) # middle position between the grasp vertices
-        return RigidTransform(rotation=rotation_3d, translation=translation)
+        return RigidTransform(rotation=rotation_3d, translation=translation, to_frame=self.object_name, from_frame='gripper')
 
 
     def sample_grasps(self, vertices, normals, normals_cos_thresh=-0.9, contact_alignment_cos_threshold=0.9, table_thresh=0.03):
@@ -344,4 +345,11 @@ class GraspingPolicy():
         if vis:
             self.vis(mesh, top_grasp_vertices, top_grasp_normals, top_grasp_qualities, poses)
         
-        return poses
+
+        # tf_inv = self.T_obj_world.inverse()
+        # our_world_poses = [tf_inv.matrix.dot(pose.matrix) for pose in poses]
+        # world_poses = [pose * tf_inv for pose in poses]
+        
+        world_poses = [self.T_obj_world * pose for pose in poses]
+        import pdb; pdb.set_trace()
+        return world_poses

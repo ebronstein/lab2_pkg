@@ -114,7 +114,10 @@ def contact_forces_exist(vertices, normals, num_facets, mu, gamma, desired_wrenc
     bool : whether contact forces can produce the desired_wrench on the object
     """
     # YOUR CODE HERE
-    raise NotImplementedError
+    
+    grasp_map = get_grasp_map(vertices, normals, num_facets, mu, gamma)
+    np.linalg.solve(grasp_map, desired_wrench)
+
 
 def compute_gravity_resistance(vertices, normals, num_facets, mu, gamma, object_mass):
     """

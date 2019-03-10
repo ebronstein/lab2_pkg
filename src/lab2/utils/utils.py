@@ -244,6 +244,12 @@ def create_pose_from_rigid_transform(g):
     wpose.orientation.w = quaternion[3]
     return wpose
 
+def create_pose_stamped_from_rigid_tf(r):
+    pose = create_pose_from_rigid_transform(r.matrix)
+    pose_stamped = PoseStamped()
+    pose_stamped.pose = pose
+    return pose_stamped
+
 def make_homo(R, p):
     out = np.eye(4)
     out[:3,3] = p

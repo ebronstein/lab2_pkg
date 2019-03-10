@@ -14,6 +14,7 @@ import trimesh
 
 # 106B lab imports
 from lab2.policies import GraspingPolicy
+from lab2.utils import create_pose_stamped_from_rigid_tf
 
 
 try:
@@ -21,6 +22,7 @@ try:
     import tf
     from baxter_interface import gripper as baxter_gripper
     from path_planner import PathPlanner
+    from moveit_msgs.msg import DisplayTrajectory, RobotState
     ros_enabled = True
 except:
     print 'Couldn\'t import ROS.  I assume you\'re running this on your laptop'
@@ -68,7 +70,14 @@ def lookup_transform(to_frame, from_frame='base'):
     rot = RigidTransform.rotation_from_quaternion(tag_rot)
     return RigidTransform(rot, tag_pos, to_frame=from_frame, from_frame=to_frame)
 
-def execute_grasp(T_grasp_world, planner, gripper):
+
+def visualize_path(robot_trajectory, planned_path_pub):
+    disp_traj = DisplayTrajectory()
+    disp_traj.trajectory.append(robot_trajectory)
+    disp_traj.trajectory_start = RobotState()
+    planned_path_pub.publish(disp_traj)
+
+def execute_grasp(T_grasp_world, planner, gripper, planned_path_pub):
     """
     takes in the desired hand position relative to the object, finds the desired 
     hand position in world coordinates.  Then moves the gripper from its starting 
@@ -90,10 +99,46 @@ def execute_grasp(T_grasp_world, planner, gripper):
         gripper.open(block=True)
         rospy.sleep(1.0)
 
-    inp = raw_input('Press <Enter> to move, or \'exit\' to exit')
+    inp = raw_input('Press <Enter> to move and open the gripper, or \'exit\' to exit')
     if inp == "exit":
         return
-    raise NotImplementedError
+    else:
+        rot = T_grasp_world.rotation
+        trans = T_grasp_world.translation
+        z = T_grasp_world.z_axis
+        intermediate_trans = trans - 0.001 * z
+        intermediate_tf = RigidTransform(rot, intermediate_trans)
+
+        open_gripper()        
+        # import pdb; pdb.set_trace()
+        intermediate_pose_stamped = create_pose_stamped_from_rigid_tf(intermediate_tf)
+        intermediate_plan = planner.plan_to_pose(intermediate_pose_stamped)
+        visualize_path(intermediate_plan, planned_path_pub)
+
+        raw_input('press enter to go to intermediate position \n')
+        planner.execute_plan(intermediate_plan)
+
+        
+        final_pose_stamped = create_pose_stamped_from_rigid_tf(T_grasp_world)
+        final_plan = planner.plan_to_pose(final_pose_stamped)
+        visualize_path(final_plan, planned_path_pub)
+        
+        raw_input('press enter to go to final pose')
+        planner.execute_plan(final_plan)
+
+        raw_input('press enter to close the gripper')
+        close_gripper()
+
+        lift_trans = trans
+        lift_trans[2] += 0.1
+        lift_tf = RigidTransform(rot, lift_trans)
+
+        lift_pose_stamped = create_pose_stamped_from_rigid_tf(lift_tf)
+        lift_plan = planner.plan_to_pose(lift_pose_stamped)
+        visualize_path(lift_plan, planned_path_pub)
+        
+        raw_input('press enter to lift the object')
+        planner.execute_plan(lift_plan)    
 
 def parse_args():
     """
@@ -146,12 +191,15 @@ if __name__ == '__main__':
 
     rospy.init_node('lab2_node')
 
+    planned_path_pub = rospy.Publisher('move_group/display_planned_path', DisplayTrajectory, queue_size=10)
+
+
     # Mesh loading and pre-processing
     print 'Loading mesh'
     mesh = trimesh.load_mesh('objects/{}.obj'.format(args.obj))
     print 'Looking up transformation to the object.'
     T_obj_world = lookup_transform(args.obj)
-    T_world_ar = None # TODO
+    T_world_ar = lookup_transform('ar_marker_1') # TODO
     mesh.apply_transform(T_obj_world.matrix)
     mesh.fix_normals()
 
@@ -166,7 +214,8 @@ if __name__ == '__main__':
         args.metric,
         mesh,
         T_obj_world,
-        T_world_ar
+        T_world_ar,
+        args.obj
     )
 
     print 'Computing grasps.'
@@ -178,10 +227,10 @@ if __name__ == '__main__':
     # Execute each grasp on the baxter / sawyer
     if args.baxter:
         gripper = baxter_gripper.Gripper(args.arm)
-        planner = PathPlanner('{}_arm'.format(arm))
+        planner = PathPlanner('{}_arm'.format(args.arm))
 
         for T_grasp_world in T_grasp_worlds:
             repeat = True
             while repeat:
-                execute_grasp(T_grasp_world, planner, gripper)
+                execute_grasp(T_grasp_world, planner, gripper, planned_path_pub)
                 repeat = raw_input("repeat? [y|n] ") == 'y'
