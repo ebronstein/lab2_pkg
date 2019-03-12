@@ -118,7 +118,7 @@ class GraspingPolicy():
 
         rotation_3d = RigidTransform.rotation_from_axes(x_axis, y_axis, z_axis)
         translation = np.average(grasp_vertices, axis=0) # middle position between the grasp vertices
-        return RigidTransform(rotation=rotation_3d, translation=translation, to_frame=self.object_name, from_frame='gripper')
+        return RigidTransform(rotation=rotation_3d, translation=translation, to_frame=self.object_name, from_frame='right_gripper')
 
 
     def sample_grasps(self, vertices, normals, normals_cos_thresh=-0.9, contact_alignment_cos_threshold=0.9, table_thresh=0.03):
@@ -339,17 +339,41 @@ class GraspingPolicy():
         # Get the hand poses
         poses = []
         for grasp_verts, grasp_norm in zip(top_grasp_vertices, top_grasp_normals):
+            # grasp_verts = np.array([gv - mesh.bounding_box.centroid for gv in grasp_verts]).reshape(grasp_verts.shape)
             poses.append(self.vertices_to_baxter_hand_pose(grasp_verts, grasp_norm))
+
 
         # Visualize the grasps
         if vis:
             self.vis(mesh, top_grasp_vertices, top_grasp_normals, top_grasp_qualities, poses)
         
-
         # tf_inv = self.T_obj_world.inverse()
-        # our_world_poses = [tf_inv.matrix.dot(pose.matrix) for pose in poses]
-        # world_poses = [pose * tf_inv for pose in poses]
+        # world_poses1 = [tf_inv.matrix.dot(pose.matrix) for pose in poses]
         
-        world_poses = [self.T_obj_world * pose for pose in poses]
-        import pdb; pdb.set_trace()
+        # world_poses2 = [pose * tf_inv for pose in poses]
+        
+
+        # combos = {}
+        # for pose_i, pose_option in enumerate([poses[0].matrix, poses[0].inverse().matrix]):
+        #     for t_obj_world_i, t_obj_world_option in enumerate([self.T_obj_world.matrix, self.T_obj_world.inverse().matrix]):
+        #         key0 = (pose_i, t_obj_world_i, 0)
+        #         combos[key0] = pose_option.dot(t_obj_world_option)
+        #         key1 = (pose_i, t_obj_world_i, 1)
+        #         combos[key1] = t_obj_world_option.dot(pose_option)
+
+        # for key, value in combos.items():
+        #     print key
+        #     print value
+        #     print ''
+
+        # import pdb; pdb.set_trace()
+        
+        world_poses = []
+        for pose in poses:
+            rotation, translation = RigidTransform.rotation_and_translation_from_matrix(self.T_obj_world.inverse().matrix.dot(pose.inverse().matrix))
+            world_poses.append(RigidTransform(rotation=rotation, translation=translation))
+            
+        # world_poses = [self.T_obj_world.inverse().matrix.dot(pose.inverse().matrix) for pose in poses]
+
+
         return world_poses

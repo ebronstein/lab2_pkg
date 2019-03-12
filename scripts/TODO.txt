@@ -1,0 +1,6 @@
+- adjust the approach direction. Change look_at_general to return a rotation matrix with the y-axis as given (the y-axis of the gripper) and the z-axis as vertical (facing downward) as possible (we could just get the most vertical facing upwards and then rotate).
+- make sure we're using the gripper min distance and max distance properly
+- do the grasps for the force closure metric
+- code up the gravity resistance metric
+- code up the ferrari-canny metric
+- do grasps with the other 2 metrics

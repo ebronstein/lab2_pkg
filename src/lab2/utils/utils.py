@@ -244,10 +244,11 @@ def create_pose_from_rigid_transform(g):
     wpose.orientation.w = quaternion[3]
     return wpose
 
-def create_pose_stamped_from_rigid_tf(r):
+def create_pose_stamped_from_rigid_tf(r, frame):
     pose = create_pose_from_rigid_transform(r.matrix)
     pose_stamped = PoseStamped()
     pose_stamped.pose = pose
+    pose_stamped.header.frame_id = frame
     return pose_stamped
 
 def make_homo(R, p):

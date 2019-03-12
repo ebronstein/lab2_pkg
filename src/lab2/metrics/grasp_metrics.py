@@ -6,7 +6,7 @@ Author: Chris Correa
 # may need more imports
 import numpy as np
 from lab2.utils import vec, adj, look_at_general, make_homo, wrench_basis
-import cvxpy as cvx
+import cvxpy as cp
 import math
 
 def compute_force_closure(vertices, normals, num_facets, mu, gamma, object_mass):
@@ -83,9 +83,9 @@ def get_grasp_map(vertices, normals, num_facets, mu, gamma):
     g2 = look_at_general(v2, n2)
     adj_g1 = adj(g1)
     adj_g2 = adj(g2)
-    G1 = adj_g1 * wrench_basis
-    G2 = adj_g2 * wrench_basis
-    return np.hstack([G1, G2])
+    G1 = adj_g1.dot(wrench_basis) # 6x4
+    G2 = adj_g2.dot(wrench_basis) # 6x4
+    return np.hstack([G1, G2]) # 6x8
 
 
 def contact_forces_exist(vertices, normals, num_facets, mu, gamma, desired_wrench):
@@ -116,7 +116,53 @@ def contact_forces_exist(vertices, normals, num_facets, mu, gamma, desired_wrenc
     # YOUR CODE HERE
     
     grasp_map = get_grasp_map(vertices, normals, num_facets, mu, gamma)
-    np.linalg.solve(grasp_map, desired_wrench)
+    m, n = grasp_map.shape # 6x8
+
+    f1 = cp.Variable()
+    f2 = cp.Variable()
+    f3 = cp.Variable()
+    f4 = cp.Variable()
+    f5 = cp.Variable()
+    f6 = cp.Variable()
+    f7 = cp.Variable()
+    f8 = cp.Variable()
+
+    f = cp.Variable(n) # 8
+    objective = cp.Minimize(cp.norm(
+            grasp_map[:, 0] * f1 +
+            grasp_map[:, 1] * f2 +
+            grasp_map[:, 2] * f3 +
+            grasp_map[:, 3] * f4 +
+            grasp_map[:, 4] * f5 +
+            grasp_map[:, 5] * f6 +
+            grasp_map[:, 6] * f7 +
+            grasp_map[:, 7] * f8 - 
+            desired_wrench))
+    
+    constraints = [
+                    f3 >= 0,
+                    f7 >= 0,
+                    f1**2 + f2**2 <= mu**2 * f3**2,
+                    f5**2 + f6**2 <= mu**2 * f7**2,
+                    cp.abs(f4) <= gamma * f3,
+                    cp.abs(f8) <= gamma * f7
+                  ]
+
+    # constraints = [
+    #                 f[2] >= 0, # force 1 z non-negative
+    #                 f[6] >= 0, # force 2 z non-negative
+    #                 # f[0]**2 + f[1]**2 <= mu**2 * f[2]**2, # force 1 in FC
+
+    #                 cp.sqrt(f[0]**2 + f[1]**2) <= mu * f[2], # force 1 in FC
+
+    #                 cp.abs(f[3]) <= gamma * f[2], # force 1 
+    #                 # f[4]**2 + f[5]**2 <= mu**2 * f[6]**2, # force 2 in FC
+    #                 # cp.abs(f[7]) <= gamma * f[6] # force 2
+    #               ]
+    prob = cp.Problem(objective, constraints)
+    # import pdb; pdb.set_trace()
+    prob.solve()
+    return prob.status == cp.OPTIMAL
 
 
 def compute_gravity_resistance(vertices, normals, num_facets, mu, gamma, object_mass):
@@ -145,7 +191,8 @@ def compute_gravity_resistance(vertices, normals, num_facets, mu, gamma, object_
     float : quality of the grasp
     """
     # YOUR CODE HERE (contact forces exist may be useful here)
-    raise NotImplementedError
+    desired_wrench = np.array([0, 0, -9.8 * object_mass, 0, 0, 0])
+    return contact_forces_exist(vertices, normals, num_facets, mu, gamma, desired_wrench)
 
 def compute_custom_metric(vertices, normals, num_facets, mu, gamma, object_mass):
     """
