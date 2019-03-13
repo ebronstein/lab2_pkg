@@ -5,6 +5,9 @@ Author: Chris Correa
 """
 import numpy as np
 from math import sin, cos, atan2, sqrt
+
+from autolab_core import RigidTransform
+
 try:
     from geometry_msgs.msg._Point import Point
     import tf.transformations as tfs
@@ -192,6 +195,21 @@ def rigid(twist):
             [sin(twist[2]), cos(twist[2]), twist[1]],
             [0, 0, 1]
         ])
+
+def get_approach_rt(baxter_hand_pose):
+    trans = baxter_hand_pose.translation
+    x_axis = baxter_hand_pose.x_axis
+    y_axis = baxter_hand_pose.y_axis
+    z_axis = baxter_hand_pose.z_axis
+
+
+    down = np.array([0, 0, -1])
+    y = normalize(y_axis)
+    x = normalize(np.cross(y, down))
+    z = normalize(np.cross(x, y))
+
+    approach_rot_3d = RigidTransform.rotation_from_axes(x, y, z)
+    return RigidTransform(rotation=approach_rot_3d, translation=trans)
 
 def look_at_general(origin, direction):
     """

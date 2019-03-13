@@ -16,12 +16,12 @@ from lab2.metrics import (
     compute_gravity_resistance, 
     compute_custom_metric
 )
-from lab2.utils import length, normalize, rotation2d
+from lab2.utils import length, normalize, rotation2d, get_approach_rt
 
 # YOUR CODE HERE
 # probably don't need to change these (BUT confirm that they're correct)
-MAX_HAND_DISTANCE = .04
-MIN_HAND_DISTANCE = .01
+MAX_HAND_DISTANCE = 0.075 # original: .04
+MIN_HAND_DISTANCE = 0.02 # original: 0.01
 CONTACT_MU = 0.5
 CONTACT_GAMMA = 0.1
 
@@ -121,7 +121,11 @@ class GraspingPolicy():
         return RigidTransform(rotation=rotation_3d, translation=translation, to_frame=self.object_name, from_frame='right_gripper')
 
 
-    def sample_grasps(self, vertices, normals, normals_cos_thresh=-0.9, contact_alignment_cos_threshold=0.9, table_thresh=0.03):
+    def sample_grasps(self, vertices, normals, 
+                      normals_cos_thresh=-0.8, # original: -0.9
+                      contact_alignment_cos_threshold=0.8, # original: 0.9
+                      table_thresh=0.03, 
+                      perpendicular_thresh=0.3):
         """
         Samples a bunch of candidate grasps.  You should randomly choose pairs of vertices and throw out
         pairs which are too big for the gripper, or too close too the table.  You should throw out vertices 
@@ -132,7 +136,8 @@ class GraspingPolicy():
         ----------
         vertices : nx3 :obj:`numpy.ndarray`
             mesh vertices (frame: object)
-        normals : nx3 :obj:`numpy.ndarray`
+        normals : nx3 :obj:`numpy.ndarray`if abs(np.dot(first_norm_homo, z_homo) / (np.linalg.norm(first_norm_homo) * np.linalg.norm(z_homo))) > perpendicular_thresh:
+            #  
             mesh normals (frame: object)
         T_ar_object : :obj:`autolab_core.RigidTransform`
             transform from the AR tag on the paper to the object
@@ -159,11 +164,24 @@ class GraspingPolicy():
 
             first_vert_homo = np.array(list(first_vert) + [1])
             second_vert_homo = np.array(list(second_vert) + [1])
-
+            z_homo = np.array([0,0,1,1])
+            first_norm_homo = np.array(list(first_norm) + [1])
 
             first_vert_world = self.T_obj_world.inverse().matrix.dot(first_vert_homo).reshape(-1)
             second_vert_world = self.T_obj_world.inverse().matrix.dot(second_vert_homo).reshape(-1)
 
+            z_world = self.T_obj_world.inverse().matrix.dot(z_homo).reshape(-1)[:3] # visualized this below to ensure that it points upward
+            first_norm_world = self.T_obj_world.inverse().matrix.dot(first_norm_homo).reshape(-1)[:3]
+
+            # z_endpoints = np.zeros((2,3))
+            # z_endpoints[0] = z_world
+            # z_endpoints[1] = z_world * 1.2
+            # vis3d.figure()
+            # vis3d.mesh(self.mesh)
+            # vis3d.plot3d(z_endpoints, color=(1,0,0), tube_radius=0.01)
+            # vis3d.points(z_world * 1.2, color=(0,0,1), scale=0.01)
+            # vis3d.show() 
+            
 
             # antipodality
             # normals should be aligned
@@ -187,6 +205,17 @@ class GraspingPolicy():
             if dist_along_norm < dist or dist_along_norm < dist_against_norm:
                 print 'Rejecting grasp due to normals facing toward each other'
                 continue
+
+            # aligned for grasp from vertical direction
+            # idea: dot the upward z direction with the line between the vertices (all in world coordinates). Close to 0 = close to perpendicular
+            # if abs(np.dot(first_norm_homo, z_homo) / (np.linalg.norm(first_norm_homo) * np.linalg.norm(z_homo))) > perpendicular_thresh:
+            #     continue
+            up = np.array([0, 0, 1]) # upward direction
+            line_between_vert = first_vert - second_vert # vector between the vertices
+            if abs(np.inner(up, line_between_vert) / np.linalg.norm(line_between_vert)) > perpendicular_thresh:
+                print 'Rejecting grasp due to not being conducive to vertical approach direction.'
+                continue
+
 
             # within gripper distance
             if np.linalg.norm(first_vert - second_vert) > MAX_HAND_DISTANCE or np.linalg.norm(first_vert - second_vert) < MIN_HAND_DISTANCE:
@@ -343,9 +372,6 @@ class GraspingPolicy():
             poses.append(self.vertices_to_baxter_hand_pose(grasp_verts, grasp_norm))
 
 
-        # Visualize the grasps
-        if vis:
-            self.vis(mesh, top_grasp_vertices, top_grasp_normals, top_grasp_qualities, poses)
         
         # tf_inv = self.T_obj_world.inverse()
         # world_poses1 = [tf_inv.matrix.dot(pose.matrix) for pose in poses]
@@ -366,14 +392,22 @@ class GraspingPolicy():
         #     print value
         #     print ''
 
-        # import pdb; pdb.set_trace()
         
+        adjusted_poses = []
         world_poses = []
         for pose in poses:
             rotation, translation = RigidTransform.rotation_and_translation_from_matrix(self.T_obj_world.inverse().matrix.dot(pose.inverse().matrix))
-            world_poses.append(RigidTransform(rotation=rotation, translation=translation))
-            
-        # world_poses = [self.T_obj_world.inverse().matrix.dot(pose.inverse().matrix) for pose in poses]
+            pose_world = RigidTransform(rotation=rotation, translation=translation)
+            world_pose = get_approach_rt(pose_world)
+            world_poses.append(world_pose)
 
+            adjusted_rotation, adjusted_translation = RigidTransform.rotation_and_translation_from_matrix(world_pose.matrix.dot(self.T_obj_world.matrix))
+            adjusted_pose = RigidTransform(rotation=adjusted_rotation, translation=adjusted_translation)
+            adjusted_poses.append(adjusted_pose)
+        
+        # Visualize the grasps
+        if vis:
+            self.vis(mesh, top_grasp_vertices, top_grasp_normals, top_grasp_qualities, poses)
 
+        # import pdb; pdb.set_trace()
         return world_poses

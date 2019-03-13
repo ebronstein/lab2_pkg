@@ -168,14 +168,15 @@ def execute_grasp(T_grasp_world, planner, gripper, planned_path_pub, goal_pos_pu
         final_rotation = T_grasp_world.rotation
         final_translation = T_grasp_world.translation
         z = T_grasp_world.z_axis
-        intermediate_trans = final_translation - 0.001 * z
+        easy_z = np.array([0., 0., -1.])
+        intermediate_trans = final_translation - 0.05 * easy_z
         intermediate_tf = RigidTransform(easy_rotation, intermediate_trans, from_frame='right_gripper', to_frame='base')
 
         # import pdb; pdb.set_trace()
         intermediate_pose_stamped = create_pose_stamped_from_rigid_tf(intermediate_tf, 'base')
         intermediate_plan = plan_to_pose_custom(intermediate_pose_stamped, planner)
         visualize_path(intermediate_plan, intermediate_trans, planned_path_pub, goal_pos_pub)
-
+        print 'Intermediate goal position: {0}'.format(intermediate_trans)
         # import pdb; pdb.set_trace()
 
         raw_input('press enter to go to intermediate position \n')
@@ -183,12 +184,13 @@ def execute_grasp(T_grasp_world, planner, gripper, planned_path_pub, goal_pos_pu
 
         # final position ######################################################
         
-        easy_T_grasp_world = RigidTransform(easy_rotation, T_grasp_world.translation, from_frame='right_gripper', to_frame='base')
+        easy_T_grasp_world = RigidTransform(easy_rotation, final_translation, from_frame='right_gripper', to_frame='base')
 
         final_pose_stamped = create_pose_stamped_from_rigid_tf(easy_T_grasp_world, 'base')
         final_plan = plan_to_pose_custom(final_pose_stamped, planner)
         visualize_path(final_plan, T_grasp_world.translation, planned_path_pub, goal_pos_pub)
-        
+        print 'Final goal position: {0}'.format(final_translation)
+
         # import pdb; pdb.set_trace()
 
         raw_input('press enter to go to final pose')
@@ -201,18 +203,41 @@ def execute_grasp(T_grasp_world, planner, gripper, planned_path_pub, goal_pos_pu
 
         # lift ######################################################
 
-        lift_trans = final_translation
-        lift_trans[2] += 0.1
-        lift_tf = RigidTransform(final_rotation, lift_trans, from_frame='right_gripper', to_frame='base')
+        lift_translation = final_translation
+        lift_translation[2] += 0.1
+        lift_tf = RigidTransform(easy_rotation, lift_translation, from_frame='right_gripper', to_frame='base')
 
         lift_pose_stamped = create_pose_stamped_from_rigid_tf(lift_tf, 'base')
         lift_plan = plan_to_pose_custom(lift_pose_stamped, planner)
-        visualize_path(lift_plan, lift_trans, planned_path_pub, goal_pos_pub)
-        
+        visualize_path(lift_plan, lift_translation, planned_path_pub, goal_pos_pub)
+        print 'Lift goal position: {0}'.format(lift_translation)
+
         # import pdb; pdb.set_trace()
 
         raw_input('press enter to lift the object')
-        planner.execute_plan(lift_plan)    
+        planner.execute_plan(lift_plan)
+
+        # move and lower ######################################################
+        move_lower_translation = final_translation
+        move_lower_translation[0] -= 0.1
+        move_lower_translation[1] -= 0.1
+        move_lower_translation[2] -= 0.03
+        move_lower_tf = RigidTransform(easy_rotation, move_lower_translation, from_frame='right_gripper', to_frame='base')
+
+        move_lower_pose_stamped = create_pose_stamped_from_rigid_tf(move_lower_tf, 'base')
+        move_lower_plan = plan_to_pose_custom(move_lower_pose_stamped, planner)
+        visualize_path(move_lower_plan, move_lower_translation, planned_path_pub, goal_pos_pub)
+        print 'Move and lower goal position: {0}'.format(move_lower_translation)
+
+        # import pdb; pdb.set_trace()
+
+        raw_input('press enter to move and lower the object')
+        planner.execute_plan(move_lower_plan)
+
+        # open gripper ######################################################
+
+        raw_input('press enter to open the gripper')
+        open_gripper()
 
 def parse_args():
     """

@@ -9,6 +9,9 @@ from lab2.utils import vec, adj, look_at_general, make_homo, wrench_basis
 import cvxpy as cp
 import math
 
+# Autolab imports
+from autolab_core import RigidTransform
+
 def compute_force_closure(vertices, normals, num_facets, mu, gamma, object_mass):
     """
     Compute the force closure of some object at contacts, with normal vectors 
@@ -87,7 +90,19 @@ def get_grasp_map(vertices, normals, num_facets, mu, gamma):
     G2 = adj_g2.dot(wrench_basis) # 6x4
     return np.hstack([G1, G2]) # 6x8
 
-
+def get_friction_cone_basis(vertex, normal, num_facets, mu):
+    axes_rot_3d = look_at_general(vertex, normal)
+    axes_rt = RigidTransform(rotation=axes_rot_3d, translation=vertex)
+    y_axis = axes_rt.y_axis
+    angle = np.arctan(mu)
+    rot = quaternion_matrix(quaternion_about_axis(angle, y_axis))
+    cone_vector = rot.dot(normal)
+    cone_basis_vecs = []
+    for angle in np.linspace(0, 2. * np.pi - 1e-8, num_facets):
+        cone_basis_vec = quaternion_matrix(quaternion_about_axis(angle, normal)).dot(cone_vector)
+        cone_basis_vecs.append(cone_basis_vec)
+    return np.array(cone_basis_vecs).reshape((3, num_facets))
+    
 def contact_forces_exist(vertices, normals, num_facets, mu, gamma, desired_wrench):
     """
     Compute whether the given grasp (at contacts with surface normals) can produce 
